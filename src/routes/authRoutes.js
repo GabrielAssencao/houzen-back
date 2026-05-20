@@ -10,8 +10,11 @@ router.post('/usuarios/registrar_teste', authController.registrarUsuarioTeste);
 router.post('/forgot-password', authController.forgotPassword);
 router.put('/reset-password', authController.resetPassword); // <-- ROTA DE NOVA SENHA ADICIONADA AQUI
 
-// Rota de Login
+// Rota de Login Tradicional
 router.post('/login', authController.login);
+
+// --- ADICIONE ESTA LINHA ABAIXO ---
+router.post('/google', authController.googleLogin);
 
 
 // ========================================================

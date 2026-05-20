@@ -51,7 +51,10 @@ const forgotPassword = async (req, res) => {
     if (rows.length === 0) return res.status(404).json({ error: 'E-mail não localizado.' });
 
     const usuario = rows[0];
-    const linkRedefinicao = `http://localhost:5173/reset-password?id=${usuario.id}`;
+    
+    // CORREÇÃO DO LOCALHOST: Usa o domínio de produção se a variável de ambiente existir
+    const urlBase = process.env.FRONTEND_URL || 'https://houzen-eight.vercel.app';
+    const linkRedefinicao = `${urlBase}/reset-password?id=${usuario.id}`;
 
     const mailOptions = {
       from: `"Houzen Engenharia" <${process.env.SMTP_USER}>`,
@@ -143,9 +146,74 @@ const resetPassword = async (req, res) => {
 
     const [result] = await db.query('UPDATE usuarios SET senha = ? WHERE id = ?', [senhaHash, id]);
     if (result.affectedRows === 0) return res.status(404).json({ error: 'Usuário não encontrado ou link expirado.' });
-    res.json({ message: 'Senha atualizada com sucesso!' });
+    res.json({ message: 'Senha updated com sucesso!' });
   } catch (error) {
     res.status(500).json({ error: 'Erro ao redefinir a senha.', detalhe: error.message });
+  }
+};
+
+// <-- ADICIONADO: Nova controller de autenticação com o Google
+const googleLogin = async (req, res) => {
+  const { email, uid, nome } = req.body;
+
+  try {
+    // 1. Verifica se o usuário já existe no banco de dados local da Houzen
+    const [rows] = await db.query('SELECT id, nome, email, nivel, status, permissoes FROM usuarios WHERE email = ? LIMIT 1', [email]);
+
+    let usuario;
+
+    if (rows.length === 0) {
+      // 2. Se não existir, registra o usuário automaticamente usando os dados do Google
+      const senhaAleatoriaFicticia = await bcrypt.hash(Math.random().toString(36), 10); // Senha segura aleatória
+      const [result] = await db.query(
+        'INSERT INTO usuarios (nome, email, senha, nivel, status, permissoes) VALUES (?, ?, ?, ?, ?, ?)',
+        [nome || 'Usuário Google', email, senhaAleatoriaFicticia, 'comum', 'ativo', JSON.stringify([])]
+      );
+      
+      usuario = {
+        id: result.insertId,
+        nome: nome || 'Usuário Google',
+        email: email,
+        nivel: 'comum',
+        permissoes: []
+      };
+    } else {
+      // 3. Se já existe, pega os dados do banco
+      usuario = rows[0];
+
+      // Verifica se a conta está ativa
+      const statusConta = usuario.status ? usuario.status.toLowerCase().trim() : 'ativo';
+      if (statusConta !== 'ativo') {
+        return res.status(403).json({ message: 'Sua conta está suspensa ou inativa.' });
+      }
+
+      // Normalização do nível do banco
+      const nivelRaw = usuario.nivel || 'comum';
+      usuario.nivel = (nivelRaw.toLowerCase().trim() === 'administrador' || nivelRaw.toLowerCase().trim() === 'admin') ? 'admin' : nivelRaw.toLowerCase().trim();
+
+      // Tratamento das permissões retornadas do banco
+      if (usuario.permissoes) {
+        try {
+          usuario.permissoes = typeof usuario.permissoes === 'string' ? JSON.parse(usuario.permissoes) : usuario.permissoes;
+        } catch(e) {
+          usuario.permissoes = [];
+        }
+      } else {
+        usuario.permissoes = [];
+      }
+    }
+
+    // 4. Retorna a resposta idêntica ao login tradicional para o front-end funcionar de forma transparente
+    res.json({
+      id: usuario.id,
+      nome: usuario.nome,
+      email: usuario.email,
+      nivel: usuario.nivel,
+      permissoes: usuario.permissoes
+    });
+
+  } catch (error) {
+    res.status(500).json({ message: 'Erro ao autenticar com o Google.', detalhe: error.message });
   }
 };
 
@@ -415,6 +483,7 @@ module.exports = {
   registrarUsuarioTeste,
   login,
   resetPassword,
+  googleLogin, // <-- EXPORTADO: Nova controller adicionada aqui
   getDashboardResumo,
   getObras,
   criarObra,
