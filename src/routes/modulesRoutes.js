@@ -1,13 +1,13 @@
-// src/routes/modulesRoutes.js
 const express = require('express');
 const router = express.Router();
-const modulesController = require('../controllers/modulesController');
+const controller = require('../controllers/authController');
 
-// Endpoints consumidos pelo Axios no React
-router.get('/dashboard/resumo', modulesController.getDashboardResumo);
-router.get('/rh/funcionarios', modulesController.getFuncionarios);
-router.get('/suprimentos', modulesController.getSuprimentos);
-router.get('/frota', modulesController.getFrota);
-router.get('/cronograma', modulesController.getCronograma);
+// Estas rotas agora serão acessadas via /dashboard/resumo, /obras, etc.
+router.get('/dashboard/resumo', controller.getDashboardResumo);
+router.get('/obras', controller.getObras);
+router.get('/rh/funcionarios', controller.getFuncionarios);
+router.get('/sedes', controller.getSedes);
+router.get('/suprimentos', controller.getSuprimentos);
+router.get('/frota', controller.getFrota);
 
 module.exports = router;
