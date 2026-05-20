@@ -152,19 +152,19 @@ const resetPassword = async (req, res) => {
   }
 };
 
-// <-- ADICIONADO: Nova controller de autenticação com o Google
+// <-- ADICIONADO: Nova controller de autenticação com o Google estruturada de forma nativa para MySQL
 const googleLogin = async (req, res) => {
   const { email, uid, nome } = req.body;
 
   try {
-    // 1. Verifica se o usuário já existe no banco de dados local da Houzen
+    // 1. Busca usando o padrão nativo do pool do MySQL do projeto
     const [rows] = await db.query('SELECT id, nome, email, nivel, status, permissoes FROM usuarios WHERE email = ? LIMIT 1', [email]);
 
     let usuario;
 
     if (rows.length === 0) {
-      // 2. Se não existir, registra o usuário automaticamente usando os dados do Google
-      const senhaAleatoriaFicticia = await bcrypt.hash(Math.random().toString(36), 10); // Senha segura aleatória
+      // 2. Se não existir, registra o usuário automaticamente no banco local
+      const senhaAleatoriaFicticia = await bcrypt.hash(Math.random().toString(36), 10);
       const [result] = await db.query(
         'INSERT INTO usuarios (nome, email, senha, nivel, status, permissoes) VALUES (?, ?, ?, ?, ?, ?)',
         [nome || 'Usuário Google', email, senhaAleatoriaFicticia, 'comum', 'ativo', JSON.stringify([])]
@@ -178,20 +178,20 @@ const googleLogin = async (req, res) => {
         permissoes: []
       };
     } else {
-      // 3. Se já existe, pega os dados do banco
+      // 3. Se o usuário já existe, armazena os dados recuperados
       usuario = rows[0];
 
-      // Verifica se a conta está ativa
+      // Bloqueio preventivo caso a conta esteja inativa
       const statusConta = usuario.status ? usuario.status.toLowerCase().trim() : 'ativo';
       if (statusConta !== 'ativo') {
         return res.status(403).json({ message: 'Sua conta está suspensa ou inativa.' });
       }
 
-      // Normalização do nível do banco
+      // Normaliza o nível de privilégio retornado
       const nivelRaw = usuario.nivel || 'comum';
       usuario.nivel = (nivelRaw.toLowerCase().trim() === 'administrador' || nivelRaw.toLowerCase().trim() === 'admin') ? 'admin' : nivelRaw.toLowerCase().trim();
 
-      // Tratamento das permissões retornadas do banco
+      // Tratamento preventivo de parsing para o array das permissões
       if (usuario.permissoes) {
         try {
           usuario.permissoes = typeof usuario.permissoes === 'string' ? JSON.parse(usuario.permissoes) : usuario.permissoes;
@@ -203,8 +203,8 @@ const googleLogin = async (req, res) => {
       }
     }
 
-    // 4. Retorna a resposta idêntica ao login tradicional para o front-end funcionar de forma transparente
-    res.json({
+    // 4. Envia resposta formatada exatamente igual ao login tradicional
+    return res.json({
       id: usuario.id,
       nome: usuario.nome,
       email: usuario.email,
@@ -213,7 +213,8 @@ const googleLogin = async (req, res) => {
     });
 
   } catch (error) {
-    res.status(500).json({ message: 'Erro ao autenticar com o Google.', detalhe: error.message });
+    console.error("Erro interno detectado no fluxo do Google:", error);
+    return res.status(500).json({ message: 'Erro ao autenticar com o Google.', detalhe: error.message });
   }
 };
 
@@ -423,7 +424,7 @@ const criarCronograma = async (req, res) => {
 const atualizarStatusCronograma = async (req, res) => {
     try {
       await db.query('UPDATE cronograma SET status = ? WHERE id = ?', [req.body.status, req.params.id]);
-      res.json({ message: 'Status atualizado' });
+      res.json({ message: 'Status updated' });
     } catch (error) { res.status(500).json({ error: 'Erro status' }); }
 };
 
@@ -446,7 +447,6 @@ const listarUsuariosAdmin = async (req, res) => {
 const criarUsuarioEmpresa = async (req, res) => {
   const { nome, email, senha, nivel, status, permissoes } = req.body;
   try {
-    // <-- ADICIONADO: Criptografia para novos usuários do painel Admin
     const senhaHash = await bcrypt.hash(senha, 10);
     
     const querySQL = 'INSERT INTO usuarios (nome, email, senha, nivel, status, permissoes) VALUES (?, ?, ?, ?, ?, ?)';
@@ -483,7 +483,7 @@ module.exports = {
   registrarUsuarioTeste,
   login,
   resetPassword,
-  googleLogin, // <-- EXPORTADO: Nova controller adicionada aqui
+  googleLogin, 
   getDashboardResumo,
   getObras,
   criarObra,
