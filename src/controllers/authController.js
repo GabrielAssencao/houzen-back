@@ -29,9 +29,7 @@ const registrarUsuarioTeste = async (req, res) => {
   }
 
   try {
-    // <-- ADICIONADO: Criptografia da senha antes de salvar
     const senhaHash = await bcrypt.hash(senha, 10); 
-    
     const querySQL = 'INSERT INTO usuarios (nome, email, senha, nivel) VALUES (?, ?, ?, ?)';
     await db.query(querySQL, [nome, email, senhaHash, nivel || 'comum']);
     res.status(201).json({ message: 'Ambiente de testes liberado para o usuário!' });
@@ -39,7 +37,8 @@ const registrarUsuarioTeste = async (req, res) => {
     if (error.code === 'ER_DUP_ENTRY') {
       res.status(400).json({ error: 'Este e-mail já está registrado em nossa plataforma.' });
     } else {
-      res.status(500).json({ error: 'Erro de banco.', detalhe: error.message });
+      console.error("Erro no registro:", error);
+      res.status(500).json({ error: 'Erro interno ao registrar usuário.' });
     }
   }
 };
@@ -51,39 +50,27 @@ const forgotPassword = async (req, res) => {
     if (rows.length === 0) return res.status(404).json({ error: 'E-mail não localizado.' });
 
     const usuario = rows[0];
-    
-    // CORREÇÃO DO LOCALHOST: Usa o domínio de produção se a variável de ambiente existir
     const urlBase = process.env.FRONTEND_URL || 'https://houzen-eight.vercel.app';
     const linkRedefinicao = `${urlBase}/reset-password?id=${usuario.id}`;
 
-    const mailOptions = {
+    await transporter.sendMail({
       from: `"Houzen Engenharia" <${process.env.SMTP_USER}>`,
       to: email,
       subject: 'Redefinição de Credenciais - Sistema Houzen',
       html: `
-        <div style="font-family: 'Helvetica Neue', Arial, sans-serif; background-color: #09090B; color: #FFFFFF; padding: 40px 20px; text-align: center;">
-          <div style="max-width: 500px; margin: 0 auto; background-color: #151518; border: 1px solid rgba(255,255,255,0.05); padding: 30px; border-radius: 16px; text-align: left;">
-            <div style="display: inline-block; background-color: #F97316; padding: 10px; border-radius: 8px; margin-bottom: 20px;">
-              <span style="color: #000000; font-weight: bold; font-size: 18px;">🏗️</span>
-            </div>
-            <h2 style="color: #FFFFFF; font-size: 24px; font-weight: bold; margin-top: 0; margin-bottom: 8px; letter-spacing: -0.5px;">Olá, ${usuario.nome}!</h2>
-            <p style="color: #A1A1AA; font-size: 15px; line-height: 1.6; margin-bottom: 24px;">
-              Uma solicitação de redefinição de senha foi efetuada para a sua conta na plataforma <strong>Houzen</strong>. 
-            </p>
-            <div style="text-align: center; margin-bottom: 28px;">
-              <a href="${linkRedefinicao}" target="_blank" style="display: inline-block; background-color: #F97316; color: #000000; font-weight: bold; font-size: 15px; text-decoration: none; padding: 12px 32px; border-radius: 10px; box-shadow: 0 4px 15px rgba(249, 115, 22, 0.25);">
-                Redefinir Minha Senha
-              </a>
-            </div>
+        <div style="font-family: sans-serif; background-color: #09090B; color: #FFFFFF; padding: 20px; text-align: center;">
+          <div style="max-width: 500px; margin: 0 auto; background-color: #151518; padding: 30px; border-radius: 16px;">
+            <h2>Olá, ${usuario.nome}!</h2>
+            <p>Uma solicitação de redefinição de senha foi efetuada.</p>
+            <a href="${linkRedefinicao}" style="background-color: #F97316; color: #000; padding: 12px 32px; text-decoration: none; border-radius: 10px; font-weight: bold;">Redefinir Minha Senha</a>
           </div>
         </div>
       `
-    };
-
-    await transporter.sendMail(mailOptions);
-    res.json({ message: 'Instruções enviadas com sucesso para a sua caixa de entrada!' });
+    });
+    res.json({ message: 'Instruções enviadas para a sua caixa de entrada!' });
   } catch (error) {
-    res.status(500).json({ error: 'Erro ao processar o envio de e-mail.', detalhe: error.message });
+    console.error("Erro no envio de email:", error);
+    res.status(500).json({ error: 'Erro ao processar o envio de e-mail.' });
   }
 };
 
@@ -92,129 +79,70 @@ const login = async (req, res) => {
   if (!email || !senha) return res.status(400).json({ message: 'E-mail e senha são obrigatórios.' });
 
   try {
-    // <-- MODIFICADO: Busca agora apenas pelo E-MAIL
     const [rows] = await db.query('SELECT id, nome, email, senha, nivel, status, permissoes FROM usuarios WHERE email = ? LIMIT 1', [email]);
     
     if (rows.length === 0) return res.status(401).json({ message: 'Credenciais incorretas.' });
 
-    // <-- ADICIONADO: Compara a senha digitada com a senha criptografada do banco
     const senhaCorreta = await bcrypt.compare(senha, rows[0].senha);
     if (!senhaCorreta) return res.status(401).json({ message: 'Credenciais incorretas.' });
 
-    // 2. Bloqueio de Usuários Inativos/Inadimplentes
-    const statusConta = rows[0].status ? rows[0].status.toLowerCase().trim() : 'ativo';
-    if (statusConta !== 'ativo') {
-      return res.status(403).json({ message: 'Sua conta está suspensa ou inativa. Entre em contato com o suporte.' });
-    }
+    const statusConta = (rows[0].status || 'ativo').toLowerCase().trim();
+    if (statusConta !== 'ativo') return res.status(403).json({ message: 'Sua conta está suspensa ou inativa.' });
 
-    // 3. Normalização do nível
-    const nivelRaw = rows[0].nivel || 'comum';
-    const nivelNormalizado = (nivelRaw.toLowerCase().trim() === 'administrador' || nivelRaw.toLowerCase().trim() === 'admin') 
-      ? 'admin' 
-      : nivelRaw.toLowerCase().trim();
-
-    // 4. Tratamento do array de permissões para o React ler corretamente
+    const nivelNormalizado = (rows[0].nivel || 'comum').toLowerCase().trim();
+    
     let permissoesArray = [];
-    if (rows[0].permissoes) {
-      try {
-        permissoesArray = typeof rows[0].permissoes === 'string' ? JSON.parse(rows[0].permissoes) : rows[0].permissoes;
-      } catch(e) {
-        permissoesArray = [];
-      }
-    }
+    try {
+      permissoesArray = typeof rows[0].permissoes === 'string' ? JSON.parse(rows[0].permissoes) : (rows[0].permissoes || []);
+    } catch(e) { permissoesArray = []; }
 
-    // 5. Resposta completa com as permissões
     res.json({ 
-      id: rows[0].id, 
-      nome: rows[0].nome, 
-      email: rows[0].email, 
-      nivel: nivelNormalizado,
+      id: rows[0].id, nome: rows[0].nome, email: rows[0].email, 
+      nivel: nivelNormalizado === 'administrador' ? 'admin' : nivelNormalizado,
       permissoes: permissoesArray
     });
   } catch (error) {
-    res.status(500).json({ message: 'Erro no login.', detalhe: error.message });
+    console.error("Erro no login:", error);
+    res.status(500).json({ message: 'Erro interno no login.' });
   }
 };
 
 const resetPassword = async (req, res) => {
   const { id, novaSenha } = req.body;
-  if (!id || !novaSenha) return res.status(400).json({ error: 'ID do usuário e nova senha são obrigatórios.' });
+  if (!id || !novaSenha) return res.status(400).json({ error: 'Dados obrigatórios ausentes.' });
 
   try {
-    // <-- ADICIONADO: Criptografa a nova senha
     const senhaHash = await bcrypt.hash(novaSenha, 10);
-
     const [result] = await db.query('UPDATE usuarios SET senha = ? WHERE id = ?', [senhaHash, id]);
-    if (result.affectedRows === 0) return res.status(404).json({ error: 'Usuário não encontrado ou link expirado.' });
-    res.json({ message: 'Senha updated com sucesso!' });
+    if (result.affectedRows === 0) return res.status(404).json({ error: 'Usuário não encontrado.' });
+    res.json({ message: 'Senha atualizada com sucesso!' });
   } catch (error) {
-    res.status(500).json({ error: 'Erro ao redefinir a senha.', detalhe: error.message });
+    console.error("Erro ao resetar senha:", error);
+    res.status(500).json({ error: 'Erro ao redefinir a senha.' });
   }
 };
 
-// <-- ADICIONADO: Nova controller de autenticação com o Google estruturada de forma nativa para MySQL
 const googleLogin = async (req, res) => {
-  const { email, uid, nome } = req.body;
-
+  const { email, nome } = req.body;
   try {
-    // 1. Busca usando o padrão nativo do pool do MySQL do projeto
     const [rows] = await db.query('SELECT id, nome, email, nivel, status, permissoes FROM usuarios WHERE email = ? LIMIT 1', [email]);
-
     let usuario;
 
     if (rows.length === 0) {
-      // 2. Se não existir, registra o usuário automaticamente no banco local
-      const senhaAleatoriaFicticia = await bcrypt.hash(Math.random().toString(36), 10);
-      const [result] = await db.query(
-        'INSERT INTO usuarios (nome, email, senha, nivel, status, permissoes) VALUES (?, ?, ?, ?, ?, ?)',
-        [nome || 'Usuário Google', email, senhaAleatoriaFicticia, 'comum', 'ativo', JSON.stringify([])]
-      );
-      
-      usuario = {
-        id: result.insertId,
-        nome: nome || 'Usuário Google',
-        email: email,
-        nivel: 'comum',
-        permissoes: []
-      };
+      const senhaFicticia = await bcrypt.hash(Math.random().toString(36), 10);
+      const [result] = await db.query('INSERT INTO usuarios (nome, email, senha, nivel, status, permissoes) VALUES (?, ?, ?, ?, ?, ?)', 
+        [nome || 'Usuário Google', email, senhaFicticia, 'comum', 'ativo', '[]']);
+      usuario = { id: result.insertId, nome: nome || 'Usuário Google', email, nivel: 'comum', permissoes: [] };
     } else {
-      // 3. Se o usuário já existe, armazena os dados recuperados
       usuario = rows[0];
-
-      // Bloqueio preventivo caso a conta esteja inativa
-      const statusConta = usuario.status ? usuario.status.toLowerCase().trim() : 'ativo';
-      if (statusConta !== 'ativo') {
-        return res.status(403).json({ message: 'Sua conta está suspensa ou inativa.' });
-      }
-
-      // Normaliza o nível de privilégio retornado
-      const nivelRaw = usuario.nivel || 'comum';
-      usuario.nivel = (nivelRaw.toLowerCase().trim() === 'administrador' || nivelRaw.toLowerCase().trim() === 'admin') ? 'admin' : nivelRaw.toLowerCase().trim();
-
-      // Tratamento preventivo de parsing para o array das permissões
-      if (usuario.permissoes) {
-        try {
-          usuario.permissoes = typeof usuario.permissoes === 'string' ? JSON.parse(usuario.permissoes) : usuario.permissoes;
-        } catch(e) {
-          usuario.permissoes = [];
-        }
-      } else {
-        usuario.permissoes = [];
-      }
+      if (usuario.status !== 'ativo') return res.status(403).json({ message: 'Conta inativa.' });
+      usuario.permissoes = typeof usuario.permissoes === 'string' ? JSON.parse(usuario.permissoes) : (usuario.permissoes || []);
     }
 
-    // 4. Envia resposta formatada exatamente igual ao login tradicional
-    return res.json({
-      id: usuario.id,
-      nome: usuario.nome,
-      email: usuario.email,
-      nivel: usuario.nivel,
-      permissoes: usuario.permissoes
-    });
-
+    res.json({ id: usuario.id, nome: usuario.nome, email: usuario.email, nivel: usuario.nivel, permissoes: usuario.permissoes });
   } catch (error) {
-    console.error("Erro interno detectado no fluxo do Google:", error);
-    return res.status(500).json({ message: 'Erro ao autenticar com o Google.', detalhe: error.message });
+    console.error("Erro Google Login:", error);
+    res.status(500).json({ message: 'Erro ao autenticar com o Google.' });
   }
 };
 
@@ -240,6 +168,7 @@ const getDashboardResumo = async (req, res) => {
       funcionarios: funcs[0].total || 0, equipamentos: equips[0].total || 0, lista_obras: listaObras
     });
   } catch (error) {
+    console.error("Erro no dashboard:", error);
     res.status(500).json({ error: 'Erro no dashboard', detalhe: error.message });
   }
 };
@@ -250,6 +179,7 @@ const getObras = async (req, res) => {
     const [rows] = await db.query('SELECT * FROM obras WHERE usuario_id = ?', [usuario_id]);
     res.json(rows);
   } catch (error) {
+    console.error("Erro ao listar obras:", error);
     res.status(500).json({ error: 'Erro ao listar obras', detalhe: error.message });
   }
 };
@@ -258,30 +188,40 @@ const criarObra = async (req, res) => {
   const usuario_id = getUsuarioId(req);
   const { nome, receitas, despesas, status } = req.body;
   try {
-    const [result] = await db.query('INSERT INTO obras (nome, receitas, despesas, status, usuario_id) VALUES (?, ?, ?, ?, ?)', [nome, receitas || 0, despesas || 0, status || 'Em Andamento', usuario_id]);
+    const [result] = await db.query('INSERT INTO obras (nome, receitas, despesas, status, usuario_id) VALUES (?, ?, ?, ?, ?)', 
+      [nome, receitas || 0, despesas || 0, status || 'Em Andamento', usuario_id]);
     res.status(201).json({ id: result.insertId });
   } catch (error) {
+    console.error("Erro ao cadastrar obra:", error);
     res.status(500).json({ error: 'Erro ao cadastrar obra', detalhe: error.message });
   }
 };
 
 const deletarObra = async (req, res) => {
-  const { id } = req.params;
+  const usuario_id = getUsuarioId(req);
   try {
-    await db.query('DELETE FROM obras WHERE id = ?', [id]);
+    // SEGURANÇA: Só deleta se o id da obra pertencer ao usuario_id logado
+    const [result] = await db.query('DELETE FROM obras WHERE id = ? AND usuario_id = ?', [req.params.id, usuario_id]);
+    if (result.affectedRows === 0) return res.status(403).json({ error: 'Obra não encontrada ou acesso negado.' });
     res.json({ message: 'Obra excluída!' });
   } catch (error) {
+    console.error("Erro ao excluir obra:", error);
     res.status(500).json({ error: 'Erro ao excluir', detalhe: error.message });
   }
 };
 
 const editarObra = async (req, res) => {
-  const { id } = req.params;
+  const usuario_id = getUsuarioId(req);
   const { nome, receitas, despesas, status } = req.body;
   try {
-    await db.query('UPDATE obras SET nome = ?, receitas = ?, despesas = ?, status = ? WHERE id = ?', [nome, receitas || 0, despesas || 0, status, id]);
-    res.json({ id, nome, receitas, despesas, status });
+    // SEGURANÇA: Só atualiza se o id da obra pertencer ao usuario_id logado
+    const [result] = await db.query('UPDATE obras SET nome = ?, receitas = ?, despesas = ?, status = ? WHERE id = ? AND usuario_id = ?', 
+      [nome, receitas || 0, despesas || 0, status, req.params.id, usuario_id]);
+    
+    if (result.affectedRows === 0) return res.status(403).json({ error: 'Obra não encontrada ou acesso negado.' });
+    res.json({ id: req.params.id, nome, receitas, despesas, status });
   } catch (error) {
+    console.error("Erro ao editar obra:", error);
     res.status(500).json({ error: 'Erro ao editar', detalhe: error.message });
   }
 };
@@ -301,7 +241,12 @@ const getFuncionarios = async (req, res) => {
 
 const criarFuncionario = async (req, res) => {
     const { nome, cargo, departamento, horas, salario, status, obra_id } = req.body;
+    const usuario_id = getUsuarioId(req);
     try {
+      // Validação: Só cria se a obra pertencer ao usuário
+      const [valida] = await db.query('SELECT id FROM obras WHERE id = ? AND usuario_id = ?', [obra_id, usuario_id]);
+      if (valida.length === 0) return res.status(403).json({ error: 'Obra inválida ou acesso negado.' });
+      
       const [result] = await db.query('INSERT INTO funcionarios (nome, cargo, departamento, horas, salario, status, obra_id) VALUES (?, ?, ?, ?, ?, ?, ?)', [nome, cargo, departamento, horas, salario, status, obra_id]);
       res.status(201).json({ id: result.insertId });
     } catch (error) { res.status(500).json({ error: 'Erro ao salvar funcionário', detalhe: error.message }); }
@@ -310,15 +255,21 @@ const criarFuncionario = async (req, res) => {
 const editarFuncionario = async (req, res) => {
     const { id } = req.params;
     const { nome, cargo, departamento, horas, salario, status, obra_id } = req.body;
+    const usuario_id = getUsuarioId(req);
     try {
+      // Validação: Só edita se a obra pertencer ao usuário
+      const [valida] = await db.query('SELECT id FROM obras WHERE id = ? AND usuario_id = ?', [obra_id, usuario_id]);
+      if (valida.length === 0) return res.status(403).json({ error: 'Acesso negado.' });
+      
       await db.query('UPDATE funcionarios SET nome=?, cargo=?, departamento=?, horas=?, salario=?, status=?, obra_id=? WHERE id=?', [nome, cargo, departamento, horas, salario, status, obra_id, id]);
       res.json({ id });
     } catch (error) { res.status(500).json({ error: 'Erro ao atualizar RH', detalhe: error.message }); }
 };
 
 const deletarFuncionario = async (req, res) => {
+    const usuario_id = getUsuarioId(req);
     try {
-      await db.query('DELETE FROM funcionarios WHERE id = ?', [req.params.id]);
+      await db.query('DELETE f FROM funcionarios f JOIN obras o ON f.obra_id = o.id WHERE f.id = ? AND o.usuario_id = ?', [req.params.id, usuario_id]);
       res.json({ message: 'Funcionário removido!' });
     } catch (error) { res.status(500).json({ error: 'Erro ao deletar' }); }
 };
@@ -334,7 +285,12 @@ const getSuprimentos = async (req, res) => {
 
 const criarSuprimento = async (req, res) => {
     const { nome, categoria, qtd, preco, fornecedor, status, obra_id, sede_id } = req.body;
+    const usuario_id = getUsuarioId(req);
     try {
+      // Validação básica de posse (obra ou sede)
+      const [valida] = await db.query('SELECT id FROM obras WHERE id = ? AND usuario_id = ?', [obra_id, usuario_id]);
+      if (valida.length === 0 && sede_id) { /* validacao adicional se necessário */ }
+      
       const [result] = await db.query('INSERT INTO suprimentos (nome, categoria, qtd, preco, fornecedor, status, obra_id, sede_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [nome, categoria, qtd, preco, fornecedor, status, obra_id, sede_id]);
       res.status(201).json({ id: result.insertId });
     } catch (error) { res.status(500).json({ error: 'Erro insumo', detalhe: error.message }); }
@@ -350,8 +306,9 @@ const editarSuprimento = async (req, res) => {
 };
 
 const deletarSuprimento = async (req, res) => {
+    const usuario_id = getUsuarioId(req);
     try {
-      await db.query('DELETE FROM suprimentos WHERE id = ?', [req.params.id]);
+      await db.query('DELETE s FROM suprimentos s JOIN obras o ON s.obra_id = o.id WHERE s.id = ? AND o.usuario_id = ?', [req.params.id, usuario_id]);
       res.json({ message: 'Removido!' });
     } catch (error) { res.status(500).json({ error: 'Erro ao deletar' }); }
 };
@@ -399,8 +356,9 @@ const editarFrota = async (req, res) => {
 };
 
 const deletarFrota = async (req, res) => {
+    const usuario_id = getUsuarioId(req);
     try {
-      await db.query('DELETE FROM frota WHERE id = ?', [req.params.id]);
+      await db.query('DELETE f FROM frota f JOIN obras o ON f.obra_id = o.id WHERE f.id = ? AND o.usuario_id = ?', [req.params.id, usuario_id]);
       res.json({ message: 'Baixa!' });
     } catch (error) { res.status(500).json({ error: 'Erro' }); }
 };
@@ -448,7 +406,6 @@ const criarUsuarioEmpresa = async (req, res) => {
   const { nome, email, senha, nivel, status, permissoes } = req.body;
   try {
     const senhaHash = await bcrypt.hash(senha, 10);
-    
     const querySQL = 'INSERT INTO usuarios (nome, email, senha, nivel, status, permissoes) VALUES (?, ?, ?, ?, ?, ?)';
     await db.query(querySQL, [nome, email, senhaHash, nivel || 'empresa', status || 'ativo', JSON.stringify(permissoes)]);
     res.status(201).json({ message: 'Empresa cadastrada!' });

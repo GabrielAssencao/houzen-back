@@ -3,38 +3,23 @@ const express = require('express');
 const router = express.Router();
 const authController = require('../controllers/authController');
 
-// ========================================================
-// Rotas de Autenticação / Landing Page Pública
-// ========================================================
+// Autenticação
 router.post('/usuarios/registrar_teste', authController.registrarUsuarioTeste);
 router.post('/forgot-password', authController.forgotPassword);
-router.put('/reset-password', authController.resetPassword); // <-- ROTA DE NOVA SENHA ADICIONADA AQUI
-
-// Rota de Login Tradicional
+router.put('/reset-password', authController.resetPassword);
 router.post('/login', authController.login);
-
-// --- ADICIONE ESTA LINHA ABAIXO ---
 router.post('/google', authController.googleLogin);
 
-
-// ========================================================
-// Rotas do Painel Geral (Dashboard)
-// ========================================================
+// Dashboard
 router.get('/dashboard/resumo', authController.getDashboardResumo);
 
-
-// ========================================================
-// Rotas do Módulo de Recursos Humanos (RH)
-// ========================================================
+// RH
 router.get('/rh/funcionarios', authController.getFuncionarios);
 router.post('/rh/funcionarios', authController.criarFuncionario);
 router.put('/rh/funcionarios/:id', authController.editarFuncionario);
 router.delete('/rh/funcionarios/:id', authController.deletarFuncionario);
 
-
-// ========================================================
-// Endpoints de Suprimentos & Sedes
-// ========================================================
+// Suprimentos & Sedes
 router.get('/suprimentos', authController.getSuprimentos);
 router.post('/suprimentos', authController.criarSuprimento);
 router.put('/suprimentos/:id', authController.editarSuprimento);
@@ -42,34 +27,25 @@ router.delete('/suprimentos/:id', authController.deletarSuprimento);
 router.get('/sedes', authController.getSedes);
 router.post('/sedes', authController.criarSede);
 
-
-// ========================================================
-// Rotas do Módulo de Frota
-// ========================================================
+// Frota
 router.get('/frota', authController.getFrota);
 router.post('/frota', authController.criarFrota);
-router.put('/frota/:id', authController.editarFrota);       
+router.put('/frota/:id', authController.editarFrota);
 router.delete('/frota/:id', authController.deletarFrota);
 
-
-// ========================================================
-// Rotas do Módulo de Cronograma
-// ========================================================
+// Cronograma
 router.get('/cronograma', authController.getCronograma);
-router.post('/cronograma', authController.criarCronograma);                   
-router.put('/cronograma/:id', authController.atualizarStatusCronograma);       
+router.post('/cronograma', authController.criarCronograma);
+router.put('/cronograma/:id', authController.atualizarStatusCronograma);
 router.delete('/cronograma/:id', authController.deletarCronograma);
 
-
-// ========================================================
-// Rotas do Módulo de Obras
-// ========================================================
+// Obras
 router.get('/obras', authController.getObras);
 router.post('/obras', authController.criarObra);
 router.put('/obras/:id', authController.editarObra);
 router.delete('/obras/:id', authController.deletarObra);
 
-// Rotas do Super Admin
+// Admin
 router.get('/admin/usuarios', authController.listarUsuariosAdmin);
 router.post('/admin/usuarios', authController.criarUsuarioEmpresa);
 router.put('/admin/usuarios/:id', authController.atualizarAcessoUsuario);
