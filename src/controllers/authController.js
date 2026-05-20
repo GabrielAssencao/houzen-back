@@ -3,6 +3,7 @@ const db = require('../config/db');
 const nodemailer = require('nodemailer');
 const dns = require('dns');
 const { promisify } = require('util');
+const bcrypt = require('bcryptjs'); // <-- ADICIONADO: Importação do bcrypt
 
 const resolveMx = promisify(dns.resolveMx);
 
@@ -28,8 +29,11 @@ const registrarUsuarioTeste = async (req, res) => {
   }
 
   try {
+    // <-- ADICIONADO: Criptografia da senha antes de salvar
+    const senhaHash = await bcrypt.hash(senha, 10); 
+    
     const querySQL = 'INSERT INTO usuarios (nome, email, senha, nivel) VALUES (?, ?, ?, ?)';
-    await db.query(querySQL, [nome, email, senha, nivel || 'comum']);
+    await db.query(querySQL, [nome, email, senhaHash, nivel || 'comum']);
     res.status(201).json({ message: 'Ambiente de testes liberado para o usuário!' });
   } catch (error) {
     if (error.code === 'ER_DUP_ENTRY') {
@@ -85,10 +89,14 @@ const login = async (req, res) => {
   if (!email || !senha) return res.status(400).json({ message: 'E-mail e senha são obrigatórios.' });
 
   try {
-    // 1. A Busca agora inclui 'status' e 'permissoes'
+    // <-- MODIFICADO: Busca agora apenas pelo E-MAIL
     const [rows] = await db.query('SELECT id, nome, email, senha, nivel, status, permissoes FROM usuarios WHERE email = ? LIMIT 1', [email]);
     
-    if (rows.length === 0 || senha !== rows[0].senha) return res.status(401).json({ message: 'Credenciais incorretas.' });
+    if (rows.length === 0) return res.status(401).json({ message: 'Credenciais incorretas.' });
+
+    // <-- ADICIONADO: Compara a senha digitada com a senha criptografada do banco
+    const senhaCorreta = await bcrypt.compare(senha, rows[0].senha);
+    if (!senhaCorreta) return res.status(401).json({ message: 'Credenciais incorretas.' });
 
     // 2. Bloqueio de Usuários Inativos/Inadimplentes
     const statusConta = rows[0].status ? rows[0].status.toLowerCase().trim() : 'ativo';
@@ -130,7 +138,10 @@ const resetPassword = async (req, res) => {
   if (!id || !novaSenha) return res.status(400).json({ error: 'ID do usuário e nova senha são obrigatórios.' });
 
   try {
-    const [result] = await db.query('UPDATE usuarios SET senha = ? WHERE id = ?', [novaSenha, id]);
+    // <-- ADICIONADO: Criptografa a nova senha
+    const senhaHash = await bcrypt.hash(novaSenha, 10);
+
+    const [result] = await db.query('UPDATE usuarios SET senha = ? WHERE id = ?', [senhaHash, id]);
     if (result.affectedRows === 0) return res.status(404).json({ error: 'Usuário não encontrado ou link expirado.' });
     res.json({ message: 'Senha atualizada com sucesso!' });
   } catch (error) {
@@ -367,8 +378,11 @@ const listarUsuariosAdmin = async (req, res) => {
 const criarUsuarioEmpresa = async (req, res) => {
   const { nome, email, senha, nivel, status, permissoes } = req.body;
   try {
+    // <-- ADICIONADO: Criptografia para novos usuários do painel Admin
+    const senhaHash = await bcrypt.hash(senha, 10);
+    
     const querySQL = 'INSERT INTO usuarios (nome, email, senha, nivel, status, permissoes) VALUES (?, ?, ?, ?, ?, ?)';
-    await db.query(querySQL, [nome, email, senha, nivel || 'empresa', status || 'ativo', JSON.stringify(permissoes)]);
+    await db.query(querySQL, [nome, email, senhaHash, nivel || 'empresa', status || 'ativo', JSON.stringify(permissoes)]);
     res.status(201).json({ message: 'Empresa cadastrada!' });
   } catch (error) {
     res.status(500).json({ error: 'Erro ao criar empresa' });
