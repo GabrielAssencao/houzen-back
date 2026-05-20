@@ -1,23 +1,32 @@
-// src/index.js
 const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
 
-// IMPORTANTE: Importamos APENAS as rotas de autenticação (onde juntamos tudo)
 const authRoutes = require('./routes/authRoutes');
 
 const app = express();
+
+// Definição da porta: O Render define a porta via variável de ambiente, 
+// se não existir, usa 5000 para local.
 const PORT = process.env.PORT || 5000;
 
-// Middlewares Globais
-app.use(cors());
+// Configuração do CORS: 
+// Em produção, é ideal permitir apenas o domínio da sua Vercel.
+app.use(cors({
+  origin: '*', // Você pode substituir '*' pelo domínio da sua Vercel para maior segurança
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'usuario-id'] // Adicionamos 'usuario-id' aqui!
+}));
+
 app.use(express.json());
 
-// Vincula todas as rotas do Houzen sob o prefixo /api/auth
+// Rota de teste simples para verificar se o servidor está vivo no navegador
+app.get('/', (req, res) => {
+  res.send('Servidor Houzen Online!');
+});
+
 app.use('/api/auth', authRoutes);
 
-// Inicialização do Servidor Local
 app.listen(PORT, () => {
-  console.log(`🚀 Servidor Houzen rodando com sucesso na porta ${PORT}`);
-  console.log(`🔒 Endpoints ativos em: http://localhost:${PORT}/api/auth`);
+  console.log(`🚀 Servidor Houzen rodando na porta ${PORT}`);
 });
