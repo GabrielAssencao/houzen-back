@@ -43,21 +43,31 @@ const forgotPassword = async (req, res) => {
     if (rows.length === 0) return res.status(404).json({ error: 'E-mail não localizado.' });
 
     const usuario = rows[0];
-    // Mantive a sua URL do Vercel original
     const urlBase = process.env.FRONTEND_URL || 'https://houzen-eight.vercel.app';
     const linkRedefinicao = `${urlBase}/reset-password?id=${usuario.id}`;
 
-    // Disparo usando o Resend (ignora firewalls e portas SMTP)
+    // Cor laranja da Houzen para usar no ícone e botão
+    const corHouzen = '#F97316';
+
+    // Disparo usando o Resend
     await resend.emails.send({
-      from: 'Houzen Engenharia <onboarding@resend.dev>', // O e-mail obrigatório do plano gratuito do Resend
-      to: email, // Lembre-se: no plano grátis, esse e-mail precisa ser o seu próprio e-mail cadastrado no Resend
+      from: 'Houzen Engenharia <onboarding@resend.dev>',
+      to: email, 
       subject: 'Redefinição de Credenciais - Sistema Houzen',
       html: `
         <div style="font-family: sans-serif; background-color: #09090B; color: #FFFFFF; padding: 20px; text-align: center;">
           <div style="max-width: 500px; margin: 0 auto; background-color: #151518; padding: 30px; border-radius: 16px;">
-            <h2>Olá, ${usuario.nome}!</h2>
+            
+            <div style="margin-bottom: 20px;">
+              <svg width="60" height="60" viewBox="0 0 24 24" fill="${corHouzen}" xmlns="http://www.w3.org/2000/svg" style="display: block; margin: 0 auto;">
+                <path d="M12 2C8.13 2 5 5.13 5 9V11H19V9C19 5.13 15.87 2 12 2Z" fill="${corHouzen}"/>
+                <path d="M19.1 12.3L12 18.2L4.9 12.3C4.3 11.8 3.5 12.2 3.5 13V15C3.5 15.8 4 16.5 4.7 16.9L12 21L19.3 16.9C20 16.5 20.5 15.8 20.5 15V13C20.5 12.2 19.7 11.8 19.1 12.3Z" fill="${corHouzen}"/>
+              </svg>
+            </div>
+
+            <h2 style="margin-top: 0;">Olá, ${usuario.nome}!</h2>
             <p>Uma solicitação de redefinição de senha foi efetuada.</p>
-            <a href="${linkRedefinicao}" style="background-color: #F97316; color: #000; padding: 12px 32px; text-decoration: none; border-radius: 10px; font-weight: bold;">Redefinir Minha Senha</a>
+            <a href="${linkRedefinicao}" style="background-color: ${corHouzen}; color: #000; padding: 12px 32px; text-decoration: none; border-radius: 10px; font-weight: bold; display: inline-block; margin-top: 10px;">Redefinir Minha Senha</a>
           </div>
         </div>
       `
