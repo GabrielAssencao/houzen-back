@@ -7,17 +7,18 @@ const bcrypt = require('bcryptjs');
 
 const resolveMx = promisify(dns.resolveMx);
 
-// --- NOVO TRANSPORTER ANTI-BLOQUEIO DO RENDER ---
+// --- TRANSPORTER PARA SERVIDORES EM NUVEM ---
 const transporter = nodemailer.createTransport({
-  host: 'smtp.gmail.com', // Força o caminho clássico
-  port: 465,              // Porta segura SSL
-  secure: true, 
+  host: 'smtp.gmail.com',
+  port: 587, // Mudança para a porta alternativa
+  secure: false, // Precisa ser false para a porta 587
+  requireTLS: true, // Força a criptografia logo após conectar
   auth: {
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS
   },
   tls: {
-    rejectUnauthorized: false // Ignora alertas chatos de certificado na nuvem
+    rejectUnauthorized: false
   }
 });
 
