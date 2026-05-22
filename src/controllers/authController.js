@@ -3,15 +3,21 @@ const db = require('../config/db');
 const nodemailer = require('nodemailer');
 const dns = require('dns');
 const { promisify } = require('util');
-const bcrypt = require('bcryptjs'); // <-- ADICIONADO: Importação do bcrypt
+const bcrypt = require('bcryptjs');
 
 const resolveMx = promisify(dns.resolveMx);
 
+// --- NOVO TRANSPORTER ANTI-BLOQUEIO DO RENDER ---
 const transporter = nodemailer.createTransport({
-  service: 'gmail',
+  host: 'smtp.gmail.com', // Força o caminho clássico
+  port: 465,              // Porta segura SSL
+  secure: true, 
   auth: {
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS
+  },
+  tls: {
+    rejectUnauthorized: false // Ignora alertas chatos de certificado na nuvem
   }
 });
 
