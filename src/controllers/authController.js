@@ -13,6 +13,7 @@ const transporter = nodemailer.createTransport({
   port: 587, // Mudança para a porta alternativa
   secure: false, // Precisa ser false para a porta 587
   requireTLS: true, // Força a criptografia logo após conectar
+  family: 4,
   auth: {
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS
