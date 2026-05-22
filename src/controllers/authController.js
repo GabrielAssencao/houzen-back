@@ -1,27 +1,12 @@
 // src/controllers/authController.js
+// --- IMPORTAÇÕES ---
 const db = require('../config/db');
-const nodemailer = require('nodemailer');
-const dns = require('dns');
-const { promisify } = require('util');
 const bcrypt = require('bcryptjs');
+const { Resend } = require('resend');
 
-const resolveMx = promisify(dns.resolveMx);
-
-// --- TRANSPORTER PARA SERVIDORES EM NUVEM ---
-const transporter = nodemailer.createTransport({
-  host: 'smtp.gmail.com',
-  port: 587, // Mudança para a porta alternativa
-  secure: false, // Precisa ser false para a porta 587
-  requireTLS: true, // Força a criptografia logo após conectar
-  family: 4,
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS
-  },
-  tls: {
-    rejectUnauthorized: false
-  }
-});
+// --- INICIALIZAÇÃO DO RESEND ---
+// O Resend substitui completamente o 'transporter' e o Nodemailer
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 // ========================================================
 // 0. AUTENTICAÇÃO (Login, Cadastro e Recuperação)
@@ -58,12 +43,14 @@ const forgotPassword = async (req, res) => {
     if (rows.length === 0) return res.status(404).json({ error: 'E-mail não localizado.' });
 
     const usuario = rows[0];
+    // Mantive a sua URL do Vercel original
     const urlBase = process.env.FRONTEND_URL || 'https://houzen-eight.vercel.app';
     const linkRedefinicao = `${urlBase}/reset-password?id=${usuario.id}`;
 
-    await transporter.sendMail({
-      from: `"Houzen Engenharia" <${process.env.SMTP_USER}>`,
-      to: email,
+    // Disparo usando o Resend (ignora firewalls e portas SMTP)
+    await resend.emails.send({
+      from: 'Houzen Engenharia <onboarding@resend.dev>', // O e-mail obrigatório do plano gratuito do Resend
+      to: email, // Lembre-se: no plano grátis, esse e-mail precisa ser o seu próprio e-mail cadastrado no Resend
       subject: 'Redefinição de Credenciais - Sistema Houzen',
       html: `
         <div style="font-family: sans-serif; background-color: #09090B; color: #FFFFFF; padding: 20px; text-align: center;">
@@ -75,9 +62,10 @@ const forgotPassword = async (req, res) => {
         </div>
       `
     });
+
     res.json({ message: 'Instruções enviadas para a sua caixa de entrada!' });
   } catch (error) {
-    console.error("Erro no envio de email:", error);
+    console.error("Erro no envio de email via Resend:", error);
     res.status(500).json({ error: 'Erro ao processar o envio de e-mail.' });
   }
 };
